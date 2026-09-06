@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agency import Agency
 from app.models.agent import AgentProfile
+from app.models.market_benchmark import MarketPriceBenchmark
+from app.models.mop_cluster import HDBMOPCluster
 from app.models.snapshot import AgentRankSnapshot
 from app.models.transaction import AgentTransaction
 from app.pipeline.cleaner import DataCleaner
 
 logger = logging.getLogger(__name__)
+
 
 
 class AggregationPipeline:
@@ -209,3 +212,85 @@ class AggregationPipeline:
 
         await self.session.commit()
         return snapshots_created
+
+    async def sync_hdb_mop_clusters(self, raw_records: list[dict[str, Any]]) -> int:
+        """Clean, deduplicate, and upsert HDB 5-Year MOP clusters."""
+        cleaned_clusters = []
+        for r in raw_records:
+            cl = DataCleaner.clean_hdb_mop_record(r)
+            if cl:
+                cleaned_clusters.append(cl)
+
+        if not cleaned_clusters:
+            return 0
+
+        existing_res = await self.session.execute(
+            select(HDBMOPCluster.town, HDBMOPCluster.street_name, HDBMOPCluster.block, HDBMOPCluster.mop_completion_year)
+        )
+        existing_keys = set(existing_res.all())
+
+        count = 0
+        for item in cleaned_clusters:
+            key = (item["town"], item["street_name"], item["block"], item["mop_completion_year"])
+            if key not in existing_keys:
+                obj = HDBMOPCluster(
+                    town=item["town"],
+                    street_name=item["street_name"],
+                    block=item["block"],
+                    lease_commence_year=item["lease_commence_year"],
+                    mop_completion_year=item["mop_completion_year"],
+                    is_mop_upgrader_cohort=item["is_mop_upgrader_cohort"],
+                    estimated_units=item["estimated_units"],
+                    median_resale_psf=item["median_resale_psf"],
+                )
+                self.session.add(obj)
+                existing_keys.add(key)
+                count += 1
+
+        await self.session.commit()
+        return count
+
+    async def sync_market_benchmarks(self, raw_records: list[dict[str, Any]]) -> int:
+        """Clean, deduplicate, and upsert URA market price benchmarks."""
+        cleaned_benchmarks = []
+        for r in raw_records:
+            bm = DataCleaner.clean_ura_benchmark_record(r)
+            if bm:
+                cleaned_benchmarks.append(bm)
+
+        if not cleaned_benchmarks:
+            return 0
+
+        existing_res = await self.session.execute(
+            select(
+                MarketPriceBenchmark.district,
+                MarketPriceBenchmark.market_segment,
+                MarketPriceBenchmark.property_category,
+                MarketPriceBenchmark.snapshot_date,
+            )
+        )
+        existing_keys = set(existing_res.all())
+
+        count = 0
+        for item in cleaned_benchmarks:
+            key = (item["district"], item["market_segment"], item["property_category"], item["snapshot_date"])
+            if key not in existing_keys:
+                obj = MarketPriceBenchmark(
+                    district=item["district"],
+                    town=item["town"],
+                    market_segment=item["market_segment"],
+                    property_category=item["property_category"],
+                    snapshot_date=item["snapshot_date"],
+                    median_psf=item["median_psf"],
+                    p25_psf=item["p25_psf"],
+                    p75_psf=item["p75_psf"],
+                    median_quantum=item["median_quantum"],
+                    quarterly_volume=item["quarterly_volume"],
+                )
+                self.session.add(obj)
+                existing_keys.add(key)
+                count += 1
+
+        await self.session.commit()
+        return count
+

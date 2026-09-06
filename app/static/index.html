@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CEA Ranking & Ingestion Engine — Phase 1 Test Dashboard</title>
+    <title>Real Estate Multi-Agent Intelligence Engine — Phase 2 Live Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -16,8 +16,8 @@
             <div class="brand">
                 <div class="brand-logo">🇸🇬</div>
                 <div class="brand-text">
-                    <h1>CEA Ranking Engine</h1>
-                    <span class="badge badge-phase">Phase 1 • Agent 1 Active</span>
+                    <h1>Real Estate Intelligence Engine</h1>
+                    <span class="badge badge-phase">Phase 2 • Agent 1, 2 & 3 Active</span>
                 </div>
             </div>
             <div class="nav-actions">
@@ -25,9 +25,13 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                     Interactive OpenAPI Docs
                 </a>
-                <button id="btn-trigger-sync" class="btn btn-primary">
+                <button id="btn-trigger-sync" class="btn btn-outline">
                     <span class="spinner-icon" id="sync-spinner">⚡</span>
-                    <span id="sync-btn-text">Run Ingestion Pipeline</span>
+                    <span id="sync-btn-text">Phase 1 Ingestion</span>
+                </button>
+                <button id="btn-trigger-ad-analysis" class="btn btn-primary">
+                    <span class="spinner-icon" id="ad-spinner">🚀</span>
+                    <span id="ad-btn-text">Run Phase 2 Whitespace Analysis</span>
                 </button>
             </div>
         </header>
@@ -44,33 +48,41 @@
             </div>
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">Agencies Tracked</span>
-                    <span class="stat-icon">🏢</span>
-                </div>
-                <div class="stat-value" id="stat-agencies">--</div>
-                <div class="stat-sub">PropNex, ERA, Huttons, OrangeTee+</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-header">
                     <span class="stat-label">Total Transactions</span>
                     <span class="stat-icon">📑</span>
                 </div>
                 <div class="stat-value" id="stat-transactions">--</div>
-                <div class="stat-sub">New Sale, Resale & Rental records</div>
+                <div class="stat-sub">New Sale, Resale & Rental</div>
             </div>
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">Database Health</span>
-                    <span class="stat-icon">🟢</span>
+                    <span class="stat-label">Active Ad Campaigns</span>
+                    <span class="stat-icon">📊</span>
                 </div>
-                <div class="stat-value text-success" id="stat-health">Healthy</div>
-                <div class="stat-sub" id="stat-latency">P95: < 15ms response</div>
+                <div class="stat-value" id="stat-ads">--</div>
+                <div class="stat-sub">Meta Ad Library Tracked</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-label">High-ROI Whitespaces</span>
+                    <span class="stat-icon">🔥</span>
+                </div>
+                <div class="stat-value text-success" id="stat-whitespace">--</div>
+                <div class="stat-sub">Score &ge; 70.0 Underserved Gaps</div>
             </div>
         </section>
 
-        <!-- Main Content Area -->
-        <main class="main-card">
-            <!-- Controls & Filter Toolbar -->
+        <!-- Navigation View Selector -->
+        <div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+            <button class="btn btn-primary view-switch-btn active" data-view="rankings">🏆 CEA Agent Rankings</button>
+            <button class="btn btn-outline view-switch-btn" data-view="mop">🎯 HDB 5-Year MOP Clusters</button>
+            <button class="btn btn-outline view-switch-btn" data-view="benchmarks">📈 URA Price Benchmarks</button>
+            <button class="btn btn-outline view-switch-btn" data-view="ads">📊 Competitor Ad Creatives (Agent 2)</button>
+            <button class="btn btn-outline view-switch-btn" data-view="whitespace">🚀 Whitespace Opportunity Explorer (Agent 3)</button>
+        </div>
+
+        <!-- VIEW 1: Agent Rankings -->
+        <main class="main-card view-section" id="view-rankings">
             <div class="toolbar">
                 <div class="segment-tabs" role="tablist">
                     <button class="tab-btn active" data-segment="overall">🏆 Overall Leaderboard</button>
@@ -89,11 +101,10 @@
                 </div>
                 <div class="search-box">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="agent-search-input" placeholder="Search by CEA Reg No (e.g. R012345A) or Name...">
+                    <input type="text" id="agent-search-input" placeholder="Search by CEA Reg No or Name...">
                 </div>
             </div>
 
-            <!-- Leaderboard Table Container -->
             <div class="table-responsive">
                 <table class="data-table" id="leaderboard-table">
                     <thead>
@@ -129,9 +140,109 @@
                 </div>
             </div>
         </main>
+
+        <!-- VIEW 2: HDB MOP Clusters -->
+        <main class="main-card view-section" id="view-mop" style="display: none;">
+            <div class="toolbar">
+                <h3 style="font-size: 1.1rem; font-weight: 700; color: #34D399;">🎯 HDB 5-Year MOP Upgrader Cohorts (Lead-Gen Engine)</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Town</th>
+                            <th>Street & Block</th>
+                            <th>Lease Year</th>
+                            <th>MOP Year</th>
+                            <th>Est. Upgrader Units</th>
+                            <th>Median Resale PSF</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mop-tbody">
+                        <tr><td colspan="7" class="text-center py-6 text-muted">Loading MOP clusters...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- VIEW 3: URA Price Benchmarks -->
+        <main class="main-card view-section" id="view-benchmarks" style="display: none;">
+            <div class="toolbar">
+                <h3 style="font-size: 1.1rem; font-weight: 700; color: #60A5FA;">📈 URA Private Residential Price Benchmarks & PSF Quartiles</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>District</th>
+                            <th>Town</th>
+                            <th>Region</th>
+                            <th>Property Category</th>
+                            <th>Median PSF</th>
+                            <th>25th - 75th PSF Spread</th>
+                            <th>Median Quantum</th>
+                            <th>Quarterly Vol</th>
+                        </tr>
+                    </thead>
+                    <tbody id="benchmarks-tbody">
+                        <tr><td colspan="8" class="text-center py-6 text-muted">Loading price benchmarks...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- VIEW 4: Agent 2 Ad Creatives -->
+        <main class="main-card view-section" id="view-ads" style="display: none;">
+            <div class="toolbar">
+                <h3 style="font-size: 1.1rem; font-weight: 700; color: #F59E0B;">📊 Agent 2: Meta Ad Library Active Creatives & Detected Marketing Hooks</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Page / Agent</th>
+                            <th>Headline & Creative Message</th>
+                            <th>Detected NLP Hooks</th>
+                            <th>Segment & District</th>
+                            <th>CTA Type</th>
+                            <th>Format</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ads-tbody">
+                        <tr><td colspan="7" class="text-center py-6 text-muted">Loading active ad campaigns...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- VIEW 5: Agent 3 Whitespace Explorer -->
+        <main class="main-card view-section" id="view-whitespace" style="display: none;">
+            <div class="toolbar">
+                <h3 style="font-size: 1.1rem; font-weight: 700; color: #EC4899;">🚀 Agent 3: High-ROI Market Whitespace Opportunities & Recommended Hooks</h3>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 140px;">Whitespace Score</th>
+                            <th>Target Opportunity</th>
+                            <th>District / Type</th>
+                            <th>Target Audience Persona</th>
+                            <th>Recommended High-Converting Hook Angle</th>
+                            <th>Est. Reachable Units</th>
+                        </tr>
+                    </thead>
+                    <tbody id="whitespace-tbody">
+                        <tr><td colspan="6" class="text-center py-6 text-muted">Loading whitespace opportunities...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
     </div>
 
-    <!-- Agent Detail Modal / Drawer -->
+    <!-- Agent Detail Modal -->
     <div class="modal-backdrop" id="agent-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -141,9 +252,7 @@
                 </div>
                 <button class="close-btn" id="modal-close">&times;</button>
             </div>
-            <div class="modal-body" id="modal-agent-body">
-                <!-- Injected via JS -->
-            </div>
+            <div class="modal-body" id="modal-agent-body"></div>
         </div>
     </div>
 

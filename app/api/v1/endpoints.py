@@ -9,9 +9,19 @@ from app.core.database import get_db
 from app.ingestion.cea_client import CEAClient
 from app.models.agency import Agency
 from app.models.agent import AgentProfile
+from app.models.market_benchmark import MarketPriceBenchmark
+from app.models.mop_cluster import HDBMOPCluster
 from app.models.snapshot import AgentRankSnapshot
 from app.models.transaction import AgentTransaction
 from app.pipeline.aggregator import AggregationPipeline
+from app.schemas.market_benchmark import (
+    MarketPriceBenchmarkListResponse,
+    MarketPriceBenchmarkResponse,
+)
+from app.schemas.mop_cluster import (
+    HDBMOPClusterListResponse,
+    HDBMOPClusterResponse,
+)
 from app.schemas.ranking import (
     IngestTriggerRequest,
     IngestTriggerResponse,
@@ -208,23 +218,93 @@ async def get_agent_details(
     }
 
 
+@router.get("/hdb/mop-clusters", response_model=HDBMOPClusterListResponse)
+async def get_hdb_mop_clusters(
+    town: str | None = Query(None, description="Filter by HDB town (e.g. PUNGGOL, BISHAN)"),
+    mop_year: int | None = Query(None, description="Filter by MOP completion year (e.g. 2024, 2025)"),
+    upgrader_cohort_only: bool = Query(True, description="Filter for 5-year MOP upgrader cohort only"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve HDB blocks and precincts reaching 5-Year MOP completion for targeted upgrader campaigns."""
+    query = select(HDBMOPCluster)
+    if town:
+        query = query.where(HDBMOPCluster.town == town.strip().upper())
+    if mop_year:
+        query = query.where(HDBMOPCluster.mop_completion_year == mop_year)
+    if upgrader_cohort_only:
+        query = query.where(HDBMOPCluster.is_mop_upgrader_cohort == True)
+
+    query = query.order_by(HDBMOPCluster.mop_completion_year.desc(), HDBMOPCluster.estimated_units.desc()).limit(limit).offset(offset)
+    results = (await db.execute(query)).scalars().all()
+
+    total_units_query = select(func.sum(HDBMOPCluster.estimated_units))
+    if town:
+        total_units_query = total_units_query.where(HDBMOPCluster.town == town.strip().upper())
+    if mop_year:
+        total_units_query = total_units_query.where(HDBMOPCluster.mop_completion_year == mop_year)
+    if upgrader_cohort_only:
+        total_units_query = total_units_query.where(HDBMOPCluster.is_mop_upgrader_cohort == True)
+
+    total_units_res = (await db.execute(total_units_query)).scalar_one_or_none() or 0
+
+    return HDBMOPClusterListResponse(
+        total_clusters=len(results),
+        total_estimated_upgrader_units=total_units_res,
+        mop_year_filter=mop_year,
+        town_filter=town,
+        clusters=[HDBMOPClusterResponse.model_validate(r) for r in results],
+    )
+
+
+@router.get("/market-benchmarks", response_model=MarketPriceBenchmarkListResponse)
+async def get_market_benchmarks(
+    district: str | None = Query(None, description="Filter by district (e.g. D10, D15, D19)"),
+    segment: str | None = Query(None, description="Filter by market segment: CCR, RCR, OCR"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve URA & Singapore private residential price benchmarks (median PSF, quartiles, and volume)."""
+    query = select(MarketPriceBenchmark)
+    if district:
+        query = query.where(MarketPriceBenchmark.district == district.strip().upper())
+    if segment:
+        query = query.where(MarketPriceBenchmark.market_segment == segment.strip().upper())
+
+    query = query.order_by(MarketPriceBenchmark.snapshot_date.desc(), MarketPriceBenchmark.median_psf.desc()).limit(limit).offset(offset)
+    results = (await db.execute(query)).scalars().all()
+
+    return MarketPriceBenchmarkListResponse(
+        total_benchmarks=len(results),
+        district_filter=district,
+        segment_filter=segment,
+        benchmarks=[MarketPriceBenchmarkResponse.model_validate(b) for b in results],
+    )
+
+
 @router.post("/ingest/trigger", response_model=IngestTriggerResponse)
 async def trigger_ingestion_and_aggregation(
     payload: IngestTriggerRequest = IngestTriggerRequest(),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger on-demand data ingestion worker from data.gov.sg / fixtures and re-compute rankings."""
+    """Trigger on-demand multi-source data ingestion worker and re-compute rankings & benchmarks."""
     start_time = time.perf_counter()
 
     client = CEAClient()
-    raw_agents, raw_txs = await client.ingest_raw_feed(
+    source_data = await client.ingest_all_sources(
         use_fixtures=payload.use_fixtures, sample_size=payload.sample_size
     )
 
     pipeline = AggregationPipeline(session=db)
     sync_stats = await pipeline.sync_raw_data(
-        raw_agents=raw_agents, raw_transactions=raw_txs
+        raw_agents=source_data["agents"], raw_transactions=source_data["transactions"]
     )
+
+    # Sync HDB MOP clusters and URA benchmarks
+    await pipeline.sync_hdb_mop_clusters(raw_records=source_data["hdb_records"])
+    await pipeline.sync_market_benchmarks(raw_records=source_data["ura_records"])
 
     ref_date = payload.snapshot_date or date.today()
     snapshots_count = await pipeline.compute_and_save_rankings(
@@ -241,5 +321,5 @@ async def trigger_ingestion_and_aggregation(
         transactions_ingested=sync_stats["transactions_count"],
         rankings_computed=snapshots_count,
         duration_ms=round(duration_ms, 2),
-        message=f"Successfully ingested {sync_stats['agents_count']} agents, {sync_stats['transactions_count']} transactions and generated {snapshots_count} rank snapshots.",
+        message=f"Successfully ingested multi-source datasets: {sync_stats['agents_count']} agents, {sync_stats['transactions_count']} txs, {len(source_data['hdb_records'])} HDB records, {len(source_data['ura_records'])} URA caveats, and generated {snapshots_count} rank snapshots.",
     )

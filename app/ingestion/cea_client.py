@@ -2,22 +2,28 @@ import asyncio
 import logging
 from typing import Any
 import httpx
+from pydantic import ValidationError
 
 from app.config import settings
+from app.ingestion.adapters.hdb_adapter import HDBResaleAdapter
+from app.ingestion.adapters.onemap_adapter import OneMapGeoAdapter
+from app.ingestion.adapters.ura_adapter import URAPMIAdapter
 from app.ingestion.synthetic_data import CEASyntheticGenerator
 from app.schemas.raw import RawCEASalespersonPayload, RawCEATransactionPayload
-from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
 
 class CEAClient:
-    """Client for ingesting CEA datasets with retry, rate-limiting, and fallback support."""
+    """Client for ingesting CEA and multi-source Singapore datasets with retry, rate-limiting, and fallback support."""
 
     def __init__(self, base_url: str | None = None):
         self.base_url = base_url or settings.DATA_GOV_SG_API_URL
         self.max_retries = 3
         self.backoff_factor = 0.5
+        self.hdb_adapter = HDBResaleAdapter(base_url=self.base_url)
+        self.ura_adapter = URAPMIAdapter(base_url=self.base_url)
+        self.onemap_adapter = OneMapGeoAdapter()
 
     async def fetch_dataset_records(
         self, resource_id: str, limit: int = 100, offset: int = 0
@@ -57,7 +63,7 @@ class CEAClient:
         schema_failures = 0
         for r in records:
             try:
-                item = RawCEASalespersonPayload.model_validate(r)
+                RawCEASalespersonPayload.model_validate(r)
                 validated.append(r)
             except ValidationError as err:
                 schema_failures += 1
@@ -70,7 +76,7 @@ class CEAClient:
         schema_failures = 0
         for r in records:
             try:
-                item = RawCEATransactionPayload.model_validate(r)
+                RawCEATransactionPayload.model_validate(r)
                 validated.append(r)
             except ValidationError as err:
                 schema_failures += 1
@@ -98,7 +104,9 @@ class CEAClient:
                     if val_agents and val_tx:
                         agents = val_agents
                         transactions = val_tx
-                        logger.info(f"Successfully ingested live data: {len(agents)} agents, {len(transactions)} txs (schema fails: {fail_a+fail_t})")
+                        logger.info(
+                            f"Successfully ingested live data: {len(agents)} agents, {len(transactions)} txs (schema fails: {fail_a+fail_t})"
+                        )
             except Exception as e:
                 logger.warning(f"[INGEST_EXCEPTION] Live fetch failed: {e}. Falling back to synthetic dataset.")
 
@@ -108,3 +116,20 @@ class CEAClient:
             transactions = CEASyntheticGenerator.generate_transactions(agents=agents)
 
         return agents, transactions
+
+    async def ingest_all_sources(
+        self, use_fixtures: bool = False, sample_size: int = 150
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Ingest all multi-source datasets: CEA agents, transactions, HDB resale/MOP, URA caveats, and OneMap."""
+        agents, transactions = await self.ingest_raw_feed(use_fixtures=use_fixtures, sample_size=sample_size)
+        hdb_records = await self.hdb_adapter.fetch_data(sample_size=sample_size)
+        ura_records = await self.ura_adapter.fetch_data(sample_size=sample_size)
+        geo_records = await self.onemap_adapter.fetch_data(sample_size=sample_size // 3)
+
+        return {
+            "agents": agents,
+            "transactions": transactions,
+            "hdb_records": hdb_records,
+            "ura_records": ura_records,
+            "geo_records": geo_records,
+        }

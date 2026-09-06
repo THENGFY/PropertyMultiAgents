@@ -230,3 +230,84 @@ class DataCleaner:
             "town": town,
             "raw_payload": raw,
         }
+
+    @classmethod
+    def clean_hdb_mop_record(cls, raw: dict[str, Any]) -> dict[str, Any] | None:
+        """Validate and clean an HDB MOP cluster record."""
+        town = cls.clean_text(raw.get("town"))
+        if not town:
+            return None
+
+        street = cls.clean_text(raw.get("street_name") or raw.get("street") or f"{town} ST")
+        block = cls.clean_text(str(raw.get("block") or "101"))
+        
+        try:
+            lease_year = int(raw.get("lease_commence_date") or raw.get("lease_commence_year") or 2018)
+        except (ValueError, TypeError):
+            lease_year = 2018
+
+        mop_year = int(raw.get("mop_year") or (lease_year + 5))
+        is_mop = bool(raw.get("is_mop_upgrader_cohort", False))
+        
+        try:
+            units = int(raw.get("estimated_units_in_cluster") or raw.get("estimated_units") or 120)
+        except (ValueError, TypeError):
+            units = 120
+
+        try:
+            psf = float(raw.get("psf") or raw.get("median_resale_psf") or 550.0)
+        except (ValueError, TypeError):
+            psf = 550.0
+
+        return {
+            "town": town.upper(),
+            "street_name": street.upper(),
+            "block": block.upper(),
+            "lease_commence_year": lease_year,
+            "mop_completion_year": mop_year,
+            "is_mop_upgrader_cohort": is_mop,
+            "estimated_units": units,
+            "median_resale_psf": round(psf, 2),
+        }
+
+    @classmethod
+    def clean_ura_benchmark_record(cls, raw: dict[str, Any]) -> dict[str, Any] | None:
+        """Validate and clean a URA private residential market benchmark record."""
+        district = cls.clean_text(raw.get("district") or "D10").upper()
+        town = cls.clean_text(raw.get("town") or "CENTRAL").upper()
+        market_segment = cls.clean_text(raw.get("market_segment") or "CCR").upper()
+        prop_cat = cls.clean_text(raw.get("property_category") or "CONDO_APT").upper()
+        
+        snap_date = cls.parse_date(raw.get("snapshot_date") or raw.get("contract_date") or date.today())
+        if not snap_date:
+            snap_date = date.today()
+
+        try:
+            med_psf = float(raw.get("median_psf") or raw.get("unit_price_psf") or 2200.0)
+        except (ValueError, TypeError):
+            med_psf = 2200.0
+
+        try:
+            p25 = float(raw.get("p25_psf") or (med_psf * 0.9))
+            p75 = float(raw.get("p75_psf") or (med_psf * 1.15))
+            quantum = float(raw.get("median_quantum") or raw.get("transacted_price") or (med_psf * 950))
+            vol = int(raw.get("quarterly_volume") or 25)
+        except (ValueError, TypeError):
+            p25 = med_psf * 0.9
+            p75 = med_psf * 1.15
+            quantum = med_psf * 950
+            vol = 25
+
+        return {
+            "district": district,
+            "town": town,
+            "market_segment": market_segment,
+            "property_category": prop_cat,
+            "snapshot_date": snap_date,
+            "median_psf": round(med_psf, 2),
+            "p25_psf": round(p25, 2),
+            "p75_psf": round(p75, 2),
+            "median_quantum": round(quantum, 2),
+            "quarterly_volume": vol,
+        }
+
